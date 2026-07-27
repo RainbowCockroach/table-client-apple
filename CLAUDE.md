@@ -11,10 +11,18 @@ The spec wins over improvisation. If code and spec disagree, stop and reconcile 
 ## Implementation workflow
 
 - `PROGRESS.md` is the plan of record. Work exactly one checkpoint per session, in order.
-- A checkpoint is finished when its listed tests/scenarios pass locally. Then: update `PROGRESS.md` (status + a dated log line), stage everything with `git add -A`, and **stop** — summarize what changed and wait for review.
+- A checkpoint is finished when its listed tests/scenarios pass locally **and** the comment sweep (see Code cleanliness) is done. Then: update `PROGRESS.md` (status + a dated log line), stage everything with `git add -A`, and **stop** — summarize what changed and wait for review.
 - **Never `git commit`, never `git push`.** The user reviews the staged diff and commits.
 - Do not start the next checkpoint in the same session unless the user says to continue.
 - Blocked, or the code wants to deviate from the spec? Stop and ask; if agreed, change the spec first.
+
+## Code cleanliness
+
+- A comment must say something the code cannot: a spec constraint (cite it — "conformance rule 8", "root DESIGN §2 live relay"), a non-obvious why, or an invariant warning. If it narrates what the next line does, restates a name, or justifies the change to a reviewer ("this ensures…", "now correctly…"), it doesn't belong in the code.
+- If a block needs a comment to explain *what* it does, extract it into a well-named function instead.
+- Doc comments (`///`) on public `TableCore` API only, one line unless the behavior is genuinely subtle.
+- No commented-out code, no section banners (`// MARK:` is fine sparingly in UI files), no TODOs that don't name a concrete follow-up (ideally a `PROGRESS.md` checkpoint).
+- **After-done sweep**: before `git add`, re-read the full diff once looking only at comments; delete every one whose removal loses no information. This sweep is part of finishing a checkpoint, same as the tests.
 
 ## Non-negotiables (from the conformance checklist)
 
