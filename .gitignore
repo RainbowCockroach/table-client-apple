@@ -1,0 +1,23 @@
+.DS_Store
+
+# Xcode per-user state: window layout, breakpoints, last-open files
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Build products
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# Package.resolved is intentionally NOT ignored — it pins dependency
+# versions so every machine and CI build resolves identically.
