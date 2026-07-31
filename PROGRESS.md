@@ -11,7 +11,7 @@ Prerequisite: a working `table-server` (local dev build is enough).
 | C1 | `TableCore` package: API client + hashing + queue, XCTest conformance-scenario tests against a local server (incl. fault-path tests via `X-Test-Drop-After`) | conformance + fault tests green | done |
 | C2 | macOS destination: main window, settings, drag-and-drop, foreground transfers end-to-end | manual: drop → upload → download on another device | done |
 | C3 | iOS destination: same screens, background `URLSession` transfers, notifications | manual background-transfer pass (DESIGN.md §7) | staged for review |
-| C4 | Share extension + app group plumbing | manual: share from Photos/Files → queued → uploaded | not started |
+| C4 | Share extension + app group plumbing | manual: share from Photos/Files → queued → uploaded | staged for review |
 | C5 | Menu bar extra, Dock drop, iPad layout polish | manual release pass | not started |
 
 Distribution is manual (Xcode / TestFlight) — no release CI planned for this repo.
@@ -151,3 +151,56 @@ Status values: `not started` → `in progress` → `staged for review` → `done
   have written to one keychain and read from the other. The file keychain ties an item to the
   binary's signature, so an ad-hoc build may ask for keychain permission again after a rebuild;
   signing in to Xcode with an Apple ID (needed for a device anyway) avoids both.
+
+- **2026-07-31 — C4 share extension + app group staged.** Three spec points were reconciled first,
+  per the workflow. DESIGN §4 had the extension starting a background session; it cannot —
+  conformance rule 1 wants the whole file's SHA-256 before `POST /uploads`, so there is no
+  transfer to start until something with time to spare has read a possibly multi-GB file. The
+  extension now stages and queues, and the app sends. §3 gained the two consequences of one
+  SQLite file with two processes on it (WAL + busy timeout; observation does not cross a process
+  boundary, so the app re-reads the queue when it comes to the front) and says the group is
+  iOS-only. §5 says the host URL moves to the group's defaults suite and the API key stays put:
+  the extension never talks to the server.
+  New in `TableCore`: `Settings/ContainerPaths.swift` (`AppGroup` — the identifier, its defaults
+  suite and its container — and `ContainerPaths`, every path inside the container resolved the
+  same way by both processes) and `Transfer/UploadStaging.swift`, which is the extension's whole
+  job: copy the item in, append the row, and drop the copy if the row cannot be written. The
+  copy and the row halves are callable separately because a shared item is readable only inside
+  the callback that hands it over, and that callback cannot wait for a database write. Also
+  `TransferRecord.upload(…)` (one definition of an upload row, whichever process appends it),
+  `TransferQueue.pickUpQueuedWork()`, `SettingsStore(inheritingFrom:)` + `hasHost(in:)`, and
+  `SQLiteTransferStore` on a `DatabasePool` — WAL, a 10 s busy timeout, and open-and-migrate
+  inside an `NSFileCoordinator` block, per GRDB's own guide for a shared database.
+  New target `ShareExtension/`: `ShareViewController` hosting a SwiftUI confirmation, and
+  `SharedItemsIntake`, which resolves each `NSItemProvider` to a file and stages it. Activation
+  takes files, images and movies, up to 20 at a time. App side: `AppPaths` splits into the shared
+  container and the publish directory, the iOS picker now goes through the same `UploadStaging`
+  the extension uses, the background session is told the shared container identifier, and
+  `MainView` calls `AppModel.adoptSharedQueue()` when the scene becomes active.
+  **72 XCTest tests green** (the 62 from C3 plus 6 for staging, 3 for the settings suite move and
+  the keyless host check, and one that drives two store connections at the same file the way the
+  two processes do), three runs clean against a dev server with `TABLE_TTL=5s TABLE_TEST_FAULTS=1`.
+  **Verified here:** both destinations build; the iOS app installs on the simulator, launches and
+  creates `queue.sqlite` (with its `-wal`/`-shm`) in the *group* container; `pluginkit` lists
+  `rainbowroachie.Table.ShareExtension` as registered, and both binaries carry the
+  `application-groups` entitlement; the macOS Release build is installed in `/Applications`,
+  launches, and is untouched by all of this — same container, same entitlements, no `PlugIns`.
+  **Not verified here:** the share sheet pass itself (share from Photos/Files → queued → open the
+  app → uploaded). Driving the simulator's UI needs Accessibility permission this session does
+  not have, so that manual proof is yours.
+  **Reviewer, judgement calls:** (1) macOS keeps its own container: nothing shares its queue, and
+  a group identifier there needs a team prefix from a provisioning profile. The split is in
+  `AppPaths` alone, and the app target's group entitlement is scoped to the iOS SDKs, so the
+  macOS build's generated entitlements are exactly what they were. (2) The extension writes
+  through the store, never through `TransferQueue`: `upload()` pumps, and starting a transfer is
+  the one thing an extension must not do. (3) Copy first, row second. A sweep in the other
+  process can then delete a copy no row claims yet — the upload fails visibly with "pick or share
+  again" — where the reverse order would leave a row pointing at a half-written file, which is a
+  silently truncated upload. (4) No keychain access group: the extension has no use for the key,
+  so the C3 keychain code is untouched. It reads the host URL only, to say "no server yet" rather
+  than queue into a void. (5) A device build needs a team, and the group has to be in its
+  provisioning profile — Xcode registers it when signed in, which is also what C3's keychain note
+  asks for. (6) The share extension is not in the macOS build: the embed phase and the target
+  dependency carry an `ios` platform filter, which is what keeps `-destination platform=macOS`
+  from trying to build an iOS-only target. (7) The C1 note about the server's live-relay/ack race
+  is still open and untouched here.

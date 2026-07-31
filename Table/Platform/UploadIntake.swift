@@ -22,11 +22,11 @@ struct UploadIntake {
         self.bookmarks = bookmarks
     }
     #else
-    private let stagedSources: URL
+    private let staging: UploadStaging
 
-    init(queue: TransferQueue, stagedSources: URL) {
+    init(queue: TransferQueue, staging: UploadStaging) {
         self.queue = queue
-        self.stagedSources = stagedSources
+        self.staging = staging
     }
     #endif
 
@@ -52,27 +52,15 @@ struct UploadIntake {
     #else
     /// The picked document is copied into the container first: the background session sends the
     /// body from another process, and the pick's claim on the original dies with this launch
-    /// while the upload may outlive it (conformance rule 14).
+    /// while the upload may outlive it (conformance rule 14). That is the share extension's
+    /// intake exactly, so it is the share extension's code (DESIGN §4).
     private func enqueue(_ url: URL) async throws {
         let claimed = url.startAccessingSecurityScopedResource()
         defer {
             if claimed { url.stopAccessingSecurityScopedResource() }
         }
-        let picked = try UploadSource(fileURL: url)
-        let staged = try copyIntoContainer(picked)
-        do {
-            try await queue.upload(UploadSource(fileURL: staged, name: picked.name))
-        } catch {
-            try? FileManager.default.removeItem(at: staged)
-            throw error
-        }
-    }
-
-    private func copyIntoContainer(_ picked: UploadSource) throws -> URL {
-        try FileManager.default.createDirectory(at: stagedSources, withIntermediateDirectories: true)
-        let staged = stagedSources.appending(path: "\(UUID().uuidString)-\(safeDisplayName(picked.name))")
-        try FileManager.default.copyItem(at: picked.fileURL, to: staged)
-        return staged
+        try await staging.stage(url)
+        await queue.pickUpQueuedWork()
     }
     #endif
 }

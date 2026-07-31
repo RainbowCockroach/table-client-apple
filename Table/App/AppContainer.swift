@@ -14,19 +14,23 @@ final class AppContainer {
 
     init() throws {
         let paths = try AppPaths()
-        settings = SettingsStore(apiKeys: KeychainAPIKeyStore())
+        settings = makeSettingsStore()
         let clients = ClientProvider(settings: settings)
         self.clients = clients
+        let store = try SQLiteTransferStore(fileURL: paths.container.queueDatabase)
         queue = TransferQueue(
-            store: try SQLiteTransferStore(fileURL: paths.queueDatabase),
+            store: store,
             tasks: transferTasks(paths),
             client: { try await clients.client() }
         )
         #if os(macOS)
-        bookmarks = SourceBookmarks(fileURL: paths.sourceBookmarks)
+        bookmarks = SourceBookmarks(fileURL: paths.container.sourceBookmarks)
         uploads = UploadIntake(queue: queue, bookmarks: bookmarks)
         #else
-        uploads = UploadIntake(queue: queue, stagedSources: paths.stagedUploads)
+        uploads = UploadIntake(
+            queue: queue,
+            staging: UploadStaging(store: store, directory: paths.container.stagedUploads)
+        )
         #endif
     }
 
@@ -47,20 +51,35 @@ private func transferTasks(_ paths: AppPaths) -> TransferTasks {
     #if os(iOS)
     return TransferTasks(
         downloads: DownloadTask(
-            temporaryDirectory: paths.partialDownloads,
+            temporaryDirectory: paths.container.partialDownloads,
             publisher: publisher,
             fetcher: BackgroundDownloadFetcher(transport: backgroundTransfers)
         ),
         uploads: UploadTask(
-            sender: BackgroundUploadSender(transport: backgroundTransfers, sliceDirectory: paths.uploadSlices),
-            stagedSources: paths.stagedUploads
+            sender: BackgroundUploadSender(
+                transport: backgroundTransfers,
+                sliceDirectory: paths.container.uploadSlices
+            ),
+            stagedSources: paths.container.stagedUploads
         )
     )
     #else
     return TransferTasks(
-        downloads: DownloadTask(temporaryDirectory: paths.partialDownloads, publisher: publisher),
+        downloads: DownloadTask(temporaryDirectory: paths.container.partialDownloads, publisher: publisher),
         uploads: UploadTask()
     )
+    #endif
+}
+
+/// DESIGN §5: on iOS the host URL lives in the app group's suite, which is the only way the
+/// share extension can tell whether there is a server to queue for.
+private func makeSettingsStore() -> SettingsStore {
+    let apiKeys = KeychainAPIKeyStore()
+    #if os(iOS)
+    guard let shared = AppGroup.defaults() else { return SettingsStore(apiKeys: apiKeys) }
+    return SettingsStore(defaults: shared, inheritingFrom: .standard, apiKeys: apiKeys)
+    #else
+    return SettingsStore(apiKeys: apiKeys)
     #endif
 }
 
@@ -71,8 +90,12 @@ let backgroundSessionIdentifier = "rainbowroachie.Table.transfers"
 
 /// A global because a background session is one per process by construction: `URLSession`
 /// refuses a second one with the same identifier, and building the container twice — which
-/// SwiftUI is free to do — must not try.
-let backgroundTransfers = BackgroundTransferSession(identifier: backgroundSessionIdentifier)
+/// SwiftUI is free to do — must not try. It is told about the app group because the bodies
+/// `nsurlsessiond` reads and the files it writes are in that container (DESIGN §4).
+let backgroundTransfers = BackgroundTransferSession(
+    identifier: backgroundSessionIdentifier,
+    sharedContainerIdentifier: AppGroup.identifier
+)
 #endif
 
 /// One client per version of the settings: building a new one per attempt would mean a new

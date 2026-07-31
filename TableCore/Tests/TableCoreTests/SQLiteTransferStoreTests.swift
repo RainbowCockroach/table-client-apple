@@ -88,6 +88,29 @@ final class SQLiteTransferStoreTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty)
     }
 
+    /// DESIGN §3: the share extension appends rows through its own connection while the app
+    /// holds one open, and the app sees them when it next reads.
+    func test_aSecondConnectionSeesRowsTheFirstOneNeverWrote() async throws {
+        let app = try SQLiteTransferStore(fileURL: databaseURL)
+        try await app.put(TransferRecord(id: "picked", direction: .upload, name: "a.bin", size: 1))
+
+        let extensionSide = try SQLiteTransferStore(fileURL: databaseURL)
+        try await extensionSide.put(
+            TransferRecord(
+                id: "shared",
+                direction: .upload,
+                name: "b.bin",
+                size: 2,
+                createdAt: Date(timeIntervalSinceNow: 1)
+            )
+        )
+
+        let seenByTheApp = try await app.all()
+        XCTAssertEqual(seenByTheApp.map(\.id), ["picked", "shared"])
+        let seenByTheExtension = try await extensionSide.record(id: "picked")
+        XCTAssertEqual(seenByTheExtension?.name, "a.bin")
+    }
+
     func test_updatesPublishTheQueueAndThenEveryChangeToIt() async throws {
         let store = try SQLiteTransferStore(fileURL: databaseURL)
         var versions = store.updates().makeAsyncIterator()

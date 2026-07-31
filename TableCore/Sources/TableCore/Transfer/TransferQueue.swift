@@ -93,16 +93,13 @@ public actor TransferQueue {
     }
 
     public func upload(_ source: UploadSource) async throws {
-        try await add(
-            TransferRecord(
-                id: newID(),
-                direction: .upload,
-                name: source.name,
-                size: source.size,
-                sourcePath: source.fileURL.path(percentEncoded: false),
-                createdAt: now()
-            )
-        )
+        try await add(TransferRecord.upload(source, id: newID(), createdAt: now()))
+    }
+
+    /// Starts rows another process appended — the share extension's, which no observation in
+    /// this process can see (DESIGN §3).
+    public func pickUpQueuedWork() async {
+        await pump()
     }
 
     public func retry(id: String) async throws {

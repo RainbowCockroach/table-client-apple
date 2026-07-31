@@ -68,6 +68,14 @@ final class AppModel {
         announce(settled.newlySettled(in: await snapshot(container)))
     }
 
+    /// DESIGN §3: the share extension appends its rows from another process, which no database
+    /// observation in this one can see. Coming to the front is when they are read and started.
+    func adoptSharedQueue() async {
+        guard let container else { return }
+        transfers = await snapshot(container)
+        await container.queue.pickUpQueuedWork()
+    }
+
     func pollWhileActive() async {
         while !Task.isCancelled {
             await refresh()

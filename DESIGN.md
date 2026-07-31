@@ -39,7 +39,7 @@ The `Authorization` header is attached by the `TableClient` layer, never scatter
 
 ## 3. Transfer queue
 
-- Persistent queue table (SQLite via GRDB, stored in the **app group container** so the share extension and main app see the same queue).
+- Persistent queue table (SQLite via GRDB). On iOS/iPadOS it lives in the **app group container** so the share extension and the main app see the same queue; macOS has no extension to share it with and keeps it in the app's own container. Two processes on one SQLite file means WAL mode and a busy timeout, and it means the app re-reads the queue when it comes to the front: database observation does not cross process boundaries.
 - States: `queued → running → verifying → done | failed(retryable) | failed(permanent)`.
 - Concurrency cap: 2 uploads / 2 downloads. Exponential backoff on retryable failures; resume via `HEAD` (uploads) or `Range` (downloads) rather than restarting.
 - Download completion order (conformance rule): temp file fully written in app container → verify length + SHA-256 → **ack** → then publish to its final destination. Publish failure never loses data — the verified temp file is still on disk.
@@ -49,7 +49,7 @@ The `Authorization` header is attached by the `TableClient` layer, never scatter
 ## 4. Platform integrations
 
 **iOS / iPadOS**
-- **Share extension**: `ACTION_SEND` equivalent — accepts any file types, multi-select. Extensions have tight memory ceilings, so the extension does no hashing and no uploading: it copies/links the incoming items into the app group container, appends queue rows, then hands off (background session started from the extension, completed by the main app). UI is a minimal "queued ✓" confirmation.
+- **Share extension**: `ACTION_SEND` equivalent — accepts any file types, multi-select. An extension lives only as long as its UI, so it does no hashing and no uploading: it copies the incoming items into the app group container, appends queue rows, and confirms. The main app hashes and uploads when it is next opened. It cannot be otherwise: conformance rule 1 requires the whole file's SHA-256 *before* `POST /uploads`, so there is no transfer for the extension to start — not even a background one — until a full pass over a possibly multi-GB file has happened somewhere that is allowed to take that long. UI is a minimal "queued ✓" confirmation that says the app has to be opened.
 - **Document picker** in-app for multi-select uploads from Files.
 - **Local notifications** on transfer completion/failure while backgrounded.
 - iPad is the same app with a wider layout (`NavigationSplitView`: file list + queue side by side).
@@ -65,7 +65,7 @@ The `Authorization` header is attached by the `TableClient` layer, never scatter
 Same two-screen shape as the Android client:
 
 1. **Main** — server file list (poll ~5 s while foregrounded; entries show name, size, expiry countdown, and upload progress for `uploading` files, which are downloadable immediately per the live-relay design) + local transfer queue with per-item progress. "Download all" action.
-2. **Settings** — host URL, API key, "test connection". API key in the **Keychain**, URL in `UserDefaults`. Both shared with the extension via keychain access group / app group.
+2. **Settings** — host URL, API key, "test connection". API key in the **Keychain**, URL in `UserDefaults` — on iOS/iPadOS the app group's suite, which is how the share extension can tell the user the app has no server yet before it queues anything. The key is not shared: the extension never talks to the server, so it has no use for one.
 
 ## 6. Apple-specific edge cases
 

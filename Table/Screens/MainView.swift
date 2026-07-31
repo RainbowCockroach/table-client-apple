@@ -18,7 +18,7 @@ struct MainView: View {
 
     var body: some View {
         // DESIGN §4: the picker is the intake both platforms share — the macOS drop and the
-        // iOS share extension (C4) sit alongside it.
+        // iOS share extension sit alongside it.
         platformScreen
             .fileImporter(
                 isPresented: $isImporting,
@@ -76,6 +76,7 @@ struct MainView: View {
         .task { await model.start() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
+            await model.adoptSharedQueue()
             await model.pollWhileActive()
         }
     }
