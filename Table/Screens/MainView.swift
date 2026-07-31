@@ -7,18 +7,33 @@ struct MainView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var isImporting = false
+
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
-    @State private var isImporting = false
     @State private var isDropTargeted = false
     #else
     @State private var isShowingSettings = false
     #endif
 
     var body: some View {
+        // DESIGN §4: the picker is the intake both platforms share — the macOS drop and the
+        // iOS share extension (C4) sit alongside it.
+        platformScreen
+            .fileImporter(
+                isPresented: $isImporting,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case .success(let urls): model.add(urls)
+                case .failure(let error): model.notice = error.localizedDescription
+                }
+            }
+    }
+
+    private var platformScreen: some View {
         #if os(macOS)
-        // DESIGN §4: drag-and-drop and the file picker are the macOS intake. The iOS half is
-        // the document picker and the share extension, in checkpoints C3 and C4.
         screen
             .dropDestination(for: URL.self) { urls, _ in
                 model.add(urls)
@@ -32,16 +47,6 @@ struct MainView: View {
                         .strokeBorder(Color.accentColor, lineWidth: 3)
                         .padding(6)
                         .allowsHitTesting(false)
-                }
-            }
-            .fileImporter(
-                isPresented: $isImporting,
-                allowedContentTypes: [.item],
-                allowsMultipleSelection: true
-            ) { result in
-                switch result {
-                case .success(let urls): model.add(urls)
-                case .failure(let error): model.notice = error.localizedDescription
                 }
             }
         #else
@@ -146,11 +151,10 @@ struct MainView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        #if os(macOS)
         ToolbarItem {
             Button("Put files on the table", systemImage: "plus") { isImporting = true }
         }
-        #else
+        #if !os(macOS)
         ToolbarItem {
             Button("Settings", systemImage: "gearshape", action: showSettings)
         }
@@ -223,6 +227,14 @@ private struct TransferRow: View {
                 }
             }
             Spacer(minLength: 12)
+            #if !os(macOS)
+            // DESIGN §3: publish puts the file in Files; export is its user-chosen-location half.
+            if let published = transfer.publishedPath, transfer.state == .done {
+                ShareLink(item: URL(filePath: published)) {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+            }
+            #endif
             if transfer.state == .failed {
                 Button("Retry now", systemImage: "arrow.clockwise", action: retry)
             }

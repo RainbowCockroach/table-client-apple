@@ -9,8 +9,8 @@ Prerequisite: a working `table-server` (local dev build is enough).
 | # | Checkpoint | Proves | Status |
 |---|---|---|---|
 | C1 | `TableCore` package: API client + hashing + queue, XCTest conformance-scenario tests against a local server (incl. fault-path tests via `X-Test-Drop-After`) | conformance + fault tests green | done |
-| C2 | macOS destination: main window, settings, drag-and-drop, foreground transfers end-to-end | manual: drop → upload → download on another device | staged for review |
-| C3 | iOS destination: same screens, background `URLSession` transfers, notifications | manual background-transfer pass (DESIGN.md §7) | not started |
+| C2 | macOS destination: main window, settings, drag-and-drop, foreground transfers end-to-end | manual: drop → upload → download on another device | done |
+| C3 | iOS destination: same screens, background `URLSession` transfers, notifications | manual background-transfer pass (DESIGN.md §7) | staged for review |
 | C4 | Share extension + app group plumbing | manual: share from Photos/Files → queued → uploaded | not started |
 | C5 | Menu bar extra, Dock drop, iPad layout polish | manual release pass | not started |
 
@@ -95,3 +95,59 @@ Status values: `not started` → `in progress` → `staged for review` → `done
   list goes stale, while transfer rows keep updating from the queue's own stream.
   (5) No completion notifications yet (DESIGN §4); they are one piece of work with the iOS ones
   in C3. (6) The C1 note about the server's live-relay/ack race is still open and untouched here.
+
+- **2026-07-31 — C3 iOS destination staged.** The transfer code grew one seam per direction so
+  the same conformance logic runs over either session (DESIGN §2): `DownloadFetcher`
+  (`StreamingDownloadFetcher` / `BackgroundDownloadFetcher`) and `UploadSender`
+  (`StreamingUploadSender` / `BackgroundUploadSender`, which materializes the resume slice).
+  `Downloader`/`Uploader` keep verify, ack, publish and rule 2/3 handling; only the bytes move
+  differently. New `BackgroundTransferSession` wraps the background `URLSession`: tasks are
+  labelled through `taskDescription` — the only state the system keeps for us — so a relaunched
+  app adopts a running task instead of sending the same bytes twice, and an event that arrives
+  with nobody waiting is held for the attempt that comes asking. A delivered download is
+  appended to its partial file *in the delegate* (`applyDownloadedTail`, which checks rule 6's
+  declarations first and moves rather than copies when the response starts at byte 0), so the
+  tail lands whether or not this process is still there; the hash is then computed over the
+  whole partial file, which is what the streaming path's incremental digest was for.
+  `TableClient` gained `appendWholeFile(…via:)` and `download(_:via:)` so requests and responses
+  are still built and read in exactly one place (rule 12), with the transports as dumb pipes.
+  App side: `.backgroundTask(.urlSession(…))` finishes woken transfers (`resumeUnfinished` →
+  `drain`), the document picker is now the shared intake (iOS copies the pick into the container
+  first, and `UploadTask` owns those copies — deleted on finalize, dismiss and launch sweep),
+  downloads land in Documents with `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`
+  and a share-sheet export, and `TransferNotifications` posts one notification per settled
+  transfer on both platforms. **62 XCTest tests green** (the 52 from C2 plus 7 unit tests for the
+  slice and the tail-append, and 3 server-backed round-trips driven through the background seams),
+  three runs clean against a dev server with `TABLE_TTL=5s TABLE_TEST_FAULTS=1`.
+  **Verified here:** both destinations build; the iOS app installs and launches on the simulator,
+  sets up the background session, excludes the container from backup and creates `queue.sqlite`;
+  the macOS Release build is installed in `/Applications` and launches. **Not verified here:**
+  the manual background pass of DESIGN §7 (start a large transfer, background the app, confirm
+  completion → verify → ack) — that needs a device and hands on the UI, and the API key can only
+  be typed in, so the end-to-end pass is still yours to run.
+  **Reviewer, judgement calls:** (1) DESIGN §3 named `UISupportsDocumentBrowser` for the Files
+  app; that key is for apps rooted in a document browser, so the spec now names the two keys a
+  plain app needs — the design doc was changed first, per the workflow. (2) The iOS intake copies
+  the picked file into the container instead of bookmarking it in place, because `nsurlsessiond`
+  reads the body out of process and the pick's claim dies with the launch; that is the same move
+  DESIGN §4 already specifies for the share extension, so C4 inherits it. (3) The background
+  session is a global in `AppContainer.swift`: one per identifier per process is a `URLSession`
+  rule, and SwiftUI may evaluate `@State private var model = AppModel()` more than once. (4) The
+  progress a background download reports is `resumeOffset + bytes written`, which is the file's
+  size on disk, not the server's committed figure — same convention as the streaming path.
+  (5) Rule 7 for the moved-in case: the file is opened and `synchronize()`d after the move, since
+  a rename promises nothing about the bytes. (6) `drain()` on the wake path waits for retry
+  backoff too; the system suspends us when our time is up and the queue resumes at next launch.
+  (7) The C1 note about the server's live-relay/ack race is still open and untouched here.
+  **Fix found by running the installed app:** saving the API key failed on macOS with
+  `errSecMissingEntitlement` — C2's `KeychainAPIKeyStore` asks for the data-protection keychain,
+  which macOS opens only to an app signed with a team, and there is no signing identity on this
+  machine. `KeychainAPIKeyStore` now falls back to the macOS file keychain when a write is
+  refused, and reads try the data-protection keychain first and the file one after: a signed
+  build behaves exactly as DESIGN §5 says, an ad-hoc one keeps working, and a build that gains a
+  team later finds the key the earlier one left. Measured rather than assumed — an ad-hoc test
+  binary showed that only the writes report the missing entitlement, while a read of the
+  data-protection keychain answers `errSecItemNotFound`, so a probe-once-then-choose design would
+  have written to one keychain and read from the other. The file keychain ties an item to the
+  binary's signature, so an ad-hoc build may ask for keychain permission again after a rebuild;
+  signing in to Xcode with an Apple ID (needed for a device anyway) avoids both.

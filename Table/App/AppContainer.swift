@@ -6,9 +6,9 @@ final class AppContainer {
     let settings: SettingsStore
     let clients: ClientProvider
     let queue: TransferQueue
+    let uploads: UploadIntake
 
     #if os(macOS)
-    let uploads: UploadIntake
     private let bookmarks: SourceBookmarks
     #endif
 
@@ -19,18 +19,14 @@ final class AppContainer {
         self.clients = clients
         queue = TransferQueue(
             store: try SQLiteTransferStore(fileURL: paths.queueDatabase),
-            tasks: TransferTasks(
-                downloads: DownloadTask(
-                    temporaryDirectory: paths.partialDownloads,
-                    publisher: DirectoryDownloadPublisher(directory: paths.publishDirectory)
-                ),
-                uploads: UploadTask()
-            ),
+            tasks: transferTasks(paths),
             client: { try await clients.client() }
         )
         #if os(macOS)
         bookmarks = SourceBookmarks(fileURL: paths.sourceBookmarks)
         uploads = UploadIntake(queue: queue, bookmarks: bookmarks)
+        #else
+        uploads = UploadIntake(queue: queue, stagedSources: paths.stagedUploads)
         #endif
     }
 
@@ -43,6 +39,41 @@ final class AppContainer {
         #endif
     }
 }
+
+/// DESIGN §2: macOS transfers run in the foreground session; iOS transfers run in the
+/// background one, so they survive suspension and app termination.
+private func transferTasks(_ paths: AppPaths) -> TransferTasks {
+    let publisher = DirectoryDownloadPublisher(directory: paths.publishDirectory)
+    #if os(iOS)
+    return TransferTasks(
+        downloads: DownloadTask(
+            temporaryDirectory: paths.partialDownloads,
+            publisher: publisher,
+            fetcher: BackgroundDownloadFetcher(transport: backgroundTransfers)
+        ),
+        uploads: UploadTask(
+            sender: BackgroundUploadSender(transport: backgroundTransfers, sliceDirectory: paths.uploadSlices),
+            stagedSources: paths.stagedUploads
+        )
+    )
+    #else
+    return TransferTasks(
+        downloads: DownloadTask(temporaryDirectory: paths.partialDownloads, publisher: publisher),
+        uploads: UploadTask()
+    )
+    #endif
+}
+
+#if os(iOS)
+/// The identifier the system reattaches this app's unfinished transfers to, whichever launch
+/// asks for them.
+let backgroundSessionIdentifier = "rainbowroachie.Table.transfers"
+
+/// A global because a background session is one per process by construction: `URLSession`
+/// refuses a second one with the same identifier, and building the container twice — which
+/// SwiftUI is free to do — must not try.
+let backgroundTransfers = BackgroundTransferSession(identifier: backgroundSessionIdentifier)
+#endif
 
 /// One client per version of the settings: building a new one per attempt would mean a new
 /// `URLSession`, and a new connection pool, for every retry.

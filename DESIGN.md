@@ -43,7 +43,7 @@ The `Authorization` header is attached by the `TableClient` layer, never scatter
 - States: `queued → running → verifying → done | failed(retryable) | failed(permanent)`.
 - Concurrency cap: 2 uploads / 2 downloads. Exponential backoff on retryable failures; resume via `HEAD` (uploads) or `Range` (downloads) rather than restarting.
 - Download completion order (conformance rule): temp file fully written in app container → verify length + SHA-256 → **ack** → then publish to its final destination. Publish failure never loses data — the verified temp file is still on disk.
-  - iOS/iPadOS: publish = save into the app's Documents directory, exposed to the Files app (`UISupportsDocumentBrowser`), with an optional "export…" action for a user-chosen location.
+  - iOS/iPadOS: publish = save into the app's Documents directory, exposed to the Files app (`UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`), with an optional "export…" action (share sheet) for a user-chosen location.
   - macOS: publish = move to `~/Downloads`.
 
 ## 4. Platform integrations

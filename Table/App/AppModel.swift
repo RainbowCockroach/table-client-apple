@@ -27,6 +27,8 @@ final class AppModel {
     var notice: String?
 
     private let container: AppContainer?
+    private let notifications = TransferNotifications()
+    private var settled = SettledTransfers()
 
     init() {
         do {
@@ -43,19 +45,27 @@ final class AppModel {
     /// view lives (conformance rule 14).
     func start() async {
         guard let container else { return }
-        await container.reclaimUploadSources()
-        do {
-            try await container.queue.resumeUnfinished()
-        } catch {
-            notice = error.localizedDescription
-        }
+        await notifications.requestAuthorization()
+        settled.takeStock(of: await snapshot(container))
+        await resumeUnfinished(container)
         do {
             for try await records in await container.queue.updates() {
+                announce(settled.newlySettled(in: records))
                 transfers = records
             }
         } catch {
             notice = error.localizedDescription
         }
+    }
+
+    /// DESIGN §6: the system woke the app to hand back finished background transfers, and it
+    /// stays awake only as long as this runs — verify, ack and publish happen here or not yet.
+    func completeBackgroundTransfers() async {
+        guard let container else { return }
+        settled.takeStock(of: await snapshot(container))
+        await resumeUnfinished(container)
+        await container.queue.drain()
+        announce(settled.newlySettled(in: await snapshot(container)))
     }
 
     func pollWhileActive() async {
@@ -135,7 +145,6 @@ final class AppModel {
         }
     }
 
-    #if os(macOS)
     func add(_ urls: [URL]) {
         guard let container, !urls.isEmpty else { return }
         Task {
@@ -149,7 +158,25 @@ final class AppModel {
         let couldNotAdd = "Couldn't add \(intake.rejected.joined(separator: ", "))."
         return intake.queued == 0 ? couldNotAdd : "Queued \(intake.queued). \(couldNotAdd)"
     }
-    #endif
+
+    private func announce(_ finished: [TransferRecord]) {
+        for transfer in finished {
+            notifications.post(transfer)
+        }
+    }
+
+    private func snapshot(_ container: AppContainer) async -> [TransferRecord] {
+        (try? await container.queue.transfers()) ?? []
+    }
+
+    private func resumeUnfinished(_ container: AppContainer) async {
+        await container.reclaimUploadSources()
+        do {
+            try await container.queue.resumeUnfinished()
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
 
     private func reloadSettings() {
         guard let container else { return }

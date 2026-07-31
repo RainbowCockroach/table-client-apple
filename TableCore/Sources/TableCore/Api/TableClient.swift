@@ -138,7 +138,38 @@ public final class TableClient: Sendable {
         task.delegate = delegate
         let (data, http) = try await delegate.awaitResponse { task.resume() }
         wire?.record(outgoing, http)
+        return try await interpretAppend(id: id, sentFrom: offset, data, http)
+    }
 
+    /// `PATCH /uploads/{id}` whose body is all of `bodyFile`, run by `transport`.
+    ///
+    /// DESIGN §2: a background task can only upload a file front to back, so `bodyFile` is the
+    /// source itself at offset 0 and a materialized slice of the remainder otherwise.
+    public func appendWholeFile(
+        id: String,
+        offset: Int64,
+        bodyFile: URL,
+        via transport: any FileBodyTransport,
+        onProgress: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> AppendResult {
+        var request = request("PATCH", "uploads", id)
+        request.setValue("application/offset+octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue(String(offset), forHTTPHeaderField: "Upload-Offset")
+
+        let outgoing = prepared(request)
+        let (data, http) = try await transport.send(outgoing, bodyFile: bodyFile, taskID: id) { sent in
+            onProgress?(offset + sent)
+        }
+        wire?.record(outgoing, http)
+        return try await interpretAppend(id: id, sentFrom: offset, data, http)
+    }
+
+    private func interpretAppend(
+        id: String,
+        sentFrom offset: Int64,
+        _ data: Data,
+        _ http: HTTPURLResponse
+    ) async throws -> AppendResult {
         switch http.statusCode {
         case 200:
             return .finalized(try TableJSON.decoder.decode(TableFile.self, from: data))
@@ -201,6 +232,28 @@ public final class TableClient: Sendable {
             stream.cancel()
             throw failure("download \(id)", body, http)
         }
+    }
+
+    /// `GET /files/{id}` run by `transport`, resuming from what the plan's partial file holds.
+    ///
+    /// Returns the bytes on disk once the task finishes. The transport appends what it receives
+    /// even if this process is gone by then, so the next attempt resumes from more than it left.
+    public func download(
+        _ plan: BackgroundDownloadPlan,
+        via transport: any FileDownloadTransport,
+        onProgress: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> Int64 {
+        var request = request("GET", "files", plan.fileID)
+        let resumeFrom = fileSize(plan.partialFile)
+        if resumeFrom > 0 {
+            request.setValue("bytes=\(resumeFrom)-", forHTTPHeaderField: "Range")
+        }
+        return try await transport.download(
+            prepared(request),
+            plan: plan,
+            taskID: plan.fileID,
+            onProgress: onProgress
+        )
     }
 
     /// `POST /files/{id}/ack` with the hash computed over the complete local copy.
@@ -305,7 +358,7 @@ private func bodyStream(of fileURL: URL, from offset: Int64) throws -> InputStre
     return stream
 }
 
-private func serverMessage(_ data: Data) -> String? {
+func serverMessage(_ data: Data) -> String? {
     try? TableJSON.decoder.decode(ApiErrorBody.self, from: data).error
 }
 

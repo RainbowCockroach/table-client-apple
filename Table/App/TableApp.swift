@@ -18,6 +18,11 @@ struct TableApp: App {
         WindowGroup {
             MainView().environment(model)
         }
+        // DESIGN §6: the system relaunches the app for its finished background transfers, and
+        // this is where they turn into verified, acked, published files.
+        .backgroundTask(.urlSession(backgroundSessionIdentifier)) {
+            await model.completeBackgroundTransfers()
+        }
         #endif
     }
 }

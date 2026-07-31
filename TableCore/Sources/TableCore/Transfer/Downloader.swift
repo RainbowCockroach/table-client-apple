@@ -40,9 +40,11 @@ public enum DownloadOutcome: Sendable, Equatable {
 /// file already holds rather than restarting (conformance rules 5, 14).
 public struct Downloader: Sendable {
     private let client: TableClient
+    private let fetcher: any DownloadFetcher
 
-    public init(_ client: TableClient) {
+    public init(_ client: TableClient, fetcher: any DownloadFetcher = StreamingDownloadFetcher()) {
         self.client = client
+        self.fetcher = fetcher
     }
 
     public func download(
@@ -55,74 +57,18 @@ public struct Downloader: Sendable {
             // A previous attempt finished the bytes but not the ack; nothing left to fetch.
             localHash = try sha256Hex(fileAt: tempFile)
         } else {
-            let fetched: Fetched
+            let fetched: FetchedBytes
             do {
-                fetched = try await fetch(target, into: tempFile, onProgress: onProgress)
+                fetched = try await fetcher.fetch(client, target, into: tempFile, onProgress: onProgress)
             } catch TableError.fileGone {
                 return .gone
             }
             guard fetched.bytesOnDisk >= target.size else {
                 return .incomplete(bytesOnDisk: fetched.bytesOnDisk)
             }
-            localHash = fetched.sha256
+            localHash = try fetched.sha256 ?? sha256Hex(fileAt: tempFile)
         }
         return try await verifyAndAck(target, tempFile: tempFile, localHash: localHash)
-    }
-
-    private struct Fetched {
-        let bytesOnDisk: Int64
-        let sha256: String
-    }
-
-    /// Streams the missing tail into `tempFile`, hashing the complete file as it goes.
-    private func fetch(
-        _ target: DownloadTarget,
-        into tempFile: URL,
-        onProgress: (@Sendable (Int64) -> Void)?
-    ) async throws -> Fetched {
-        let stream = try await client.openDownload(id: target.id, rangeFrom: fileSize(tempFile))
-        try check(target, against: stream)
-
-        if !FileManager.default.fileExists(atPath: tempFile.path(percentEncoded: false)) {
-            FileManager.default.createFile(atPath: tempFile.path(percentEncoded: false), contents: nil)
-        }
-        let sink = try FileHandle(forWritingTo: tempFile)
-        var hasher = Sha256Hasher()
-        var onDisk = stream.rangeStart
-        do {
-            // A server that ignored the Range answers from byte 0, so whatever we had is
-            // superseded rather than appended to.
-            try sink.truncate(atOffset: UInt64(stream.rangeStart))
-            try rehashKeptBytes(of: tempFile, upTo: stream.rangeStart, into: &hasher)
-            try sink.seek(toOffset: UInt64(stream.rangeStart))
-
-            for try await chunk in stream.body {
-                try sink.write(contentsOf: chunk)
-                hasher.update(chunk)
-                onDisk += Int64(chunk.count)
-                onProgress?(onDisk)
-            }
-            // Rule 7: durable before anything acks it.
-            try sink.synchronize()
-            try sink.close()
-        } catch {
-            stream.cancel()
-            try? sink.synchronize()
-            try? sink.close()
-            throw error
-        }
-        return Fetched(bytesOnDisk: onDisk, sha256: hasher.hex())
-    }
-
-    /// DESIGN §2: a resumed download rebuilds its digest from the bytes already on disk.
-    private func rehashKeptBytes(of tempFile: URL, upTo keptBytes: Int64, into hasher: inout Sha256Hasher) throws {
-        guard keptBytes > 0 else { return }
-        try hasher.update(contentsOf: tempFile)
-        guard hasher.bytesHashed == keptBytes else {
-            throw TableError.malformedResponse(
-                "partial file shrank to \(hasher.bytesHashed) while rebuilding the digest"
-            )
-        }
     }
 
     private func verifyAndAck(
@@ -152,25 +98,6 @@ public struct Downloader: Sendable {
     private func discard(_ tempFile: URL, _ reason: String) -> DownloadOutcome {
         try? FileManager.default.removeItem(at: tempFile)
         return .corrupt(reason: reason)
-    }
-
-    /// Rule 6 verifies against what the server declares on the wire, so it has to declare it.
-    private func check(_ target: DownloadTarget, against stream: DownloadStream) throws {
-        guard let declaredSize = stream.totalSize else {
-            stream.cancel()
-            throw TableError.malformedResponse("download \(target.id): server declared no length")
-        }
-        guard let declaredHash = stream.checksumSHA256 else {
-            stream.cancel()
-            throw TableError.malformedResponse("download \(target.id): no X-Checksum-SHA256 header")
-        }
-        guard declaredSize == target.size, declaredHash == target.sha256 else {
-            stream.cancel()
-            throw TableError.malformedResponse(
-                "download \(target.id): server now declares \(declaredSize)/\(declaredHash), "
-                    + "queued as \(target.size)/\(target.sha256)"
-            )
-        }
     }
 }
 

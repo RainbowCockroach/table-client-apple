@@ -36,9 +36,11 @@ public enum UploadOutcome: Sendable, Equatable {
 /// rather than assuming (conformance rules 2, 14).
 public struct Uploader: Sendable {
     private let client: TableClient
+    private let sender: any UploadSender
 
-    public init(_ client: TableClient) {
+    public init(_ client: TableClient, sender: any UploadSender = StreamingUploadSender()) {
         self.client = client
+        self.sender = sender
     }
 
     /// Conformance rule 1: size and SHA-256 are computed before the session is created.
@@ -63,12 +65,7 @@ public struct Uploader: Sendable {
             )
         }
 
-        let result = try await client.appendBytes(
-            id: session.id,
-            offset: offset,
-            from: source.fileURL,
-            onProgress: onProgress
-        )
+        let result = try await sender.send(client, session, from: source, at: offset, onProgress: onProgress)
         switch result {
         case .finalized(let file):
             return .finalized(file)

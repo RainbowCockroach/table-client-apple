@@ -59,11 +59,13 @@ public struct TransferTasks: TransferAttempt {
     /// Drops what a dismissed transfer leaves on disk.
     public func discard(_ record: TransferRecord) {
         downloads.discard(record)
+        uploads.discard(record)
     }
 
     /// Removes temp files no record needs any more (rule 14: records outlive processes).
     public func sweep(live: [TransferRecord]) {
         downloads.sweep(live: live)
+        uploads.sweep(live: live)
     }
 }
 
@@ -75,10 +77,16 @@ public struct TransferTasks: TransferAttempt {
 public struct DownloadTask: Sendable {
     private let temporaryDirectory: URL
     private let publisher: any DownloadPublisher
+    private let fetcher: any DownloadFetcher
 
-    public init(temporaryDirectory: URL, publisher: any DownloadPublisher) {
+    public init(
+        temporaryDirectory: URL,
+        publisher: any DownloadPublisher,
+        fetcher: any DownloadFetcher = StreamingDownloadFetcher()
+    ) {
         self.temporaryDirectory = temporaryDirectory
         self.publisher = publisher
+        self.fetcher = fetcher
     }
 
     public func run(
@@ -88,7 +96,8 @@ public struct DownloadTask: Sendable {
     ) async -> TransferResult {
         do {
             let tempFile = try temporaryFile(for: target.id)
-            let outcome = try await Downloader(client).download(target, to: tempFile) { report.bytes($0) }
+            let downloader = Downloader(client, fetcher: fetcher)
+            let outcome = try await downloader.download(target, to: tempFile) { report.bytes($0) }
             switch outcome {
             case .verified(let tempFile, _, _):
                 return try publish(tempFile, as: target.name)
@@ -145,7 +154,15 @@ public struct DownloadTask: Sendable {
 /// resumes from the server's committed offset (rule 2); rule 3 and the session-gone case drop
 /// that id so the next attempt declares the file afresh.
 public struct UploadTask: Sendable {
-    public init() {}
+    private let sender: any UploadSender
+    private let stagedSources: URL?
+
+    /// `stagedSources` is the directory this task owns copies in: on iOS an upload reads from
+    /// a copy in the container (DESIGN §4), and nothing but the queue knows when it can go.
+    public init(sender: any UploadSender = StreamingUploadSender(), stagedSources: URL? = nil) {
+        self.sender = sender
+        self.stagedSources = stagedSources
+    }
 
     public func run(
         _ client: TableClient,
@@ -155,7 +172,7 @@ public struct UploadTask: Sendable {
         guard let sourcePath = record.sourcePath else {
             return permanent("queued without a source file")
         }
-        let uploader = Uploader(client)
+        let uploader = Uploader(client, sender: sender)
         do {
             let source = try UploadSource(fileURL: URL(filePath: sourcePath), name: record.name)
             let session: UploadSession
@@ -167,6 +184,7 @@ public struct UploadTask: Sendable {
             }
             switch try await uploader.upload(session, from: source, onProgress: { report.bytes($0) }) {
             case .finalized:
+                discard(record)
                 return .done(published: nil)
             case .interrupted(let committedOffset):
                 return retryable("stopped at \(committedOffset) of \(session.size) bytes")
@@ -187,5 +205,33 @@ public struct UploadTask: Sendable {
     private func startOver(_ report: any TransferReport, _ reason: String) async -> TransferResult {
         await report.session(nil)
         return retryable("\(reason) — sending it again from the start")
+    }
+
+    func discard(_ record: TransferRecord) {
+        guard record.direction == .upload, let staged = staged(record.sourcePath) else { return }
+        try? FileManager.default.removeItem(at: staged)
+    }
+
+    func sweep(live: [TransferRecord]) {
+        guard let stagedSources else { return }
+        let needed = Set(live.compactMap { staged($0.sourcePath)?.lastPathComponent })
+        let existing = try? FileManager.default.contentsOfDirectory(
+            at: stagedSources,
+            includingPropertiesForKeys: nil
+        )
+        for file in existing ?? [] where !needed.contains(file.lastPathComponent) {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    /// A source this task owns — one it copied into `stagedSources` — rather than a file that
+    /// belongs to the user and must survive the transfer.
+    private func staged(_ sourcePath: String?) -> URL? {
+        guard let stagedSources, let sourcePath else { return nil }
+        let source = URL(filePath: sourcePath)
+        guard source.deletingLastPathComponent().standardizedFileURL == stagedSources.standardizedFileURL else {
+            return nil
+        }
+        return source
     }
 }
