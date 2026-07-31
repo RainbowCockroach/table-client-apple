@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B764CA90301AE58C00E25674 /* TableCore in Frameworks */ = {isa = PBXBuildFile; productRef = B764CA8F301AE58C00E25674 /* TableCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		B764CA7B301AE58C00E25674 /* Table.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Table.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B764CA90301AE58C00E25674 /* TableCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = Table;
 			packageProductDependencies = (
+				B764CA8F301AE58C00E25674 /* TableCore */,
 			);
 			productName = Table;
 			productReference = B764CA7B301AE58C00E25674 /* Table.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = B764CA72301AE58C00E25674;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B764CA8E301AE58C00E25674 /* XCLocalSwiftPackageReference "TableCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B764CA7C301AE58C00E25674 /* Products */;
 			projectDirPath = "";
@@ -247,6 +256,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				"ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER[sdk=macosx*]" = readwrite;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
@@ -302,6 +312,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				"ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER[sdk=macosx*]" = readwrite;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
@@ -371,6 +382,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B764CA8E301AE58C00E25674 /* XCLocalSwiftPackageReference "TableCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = TableCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B764CA8F301AE58C00E25674 /* TableCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TableCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B764CA73301AE58C00E25674 /* Project object */;
 }

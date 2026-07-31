@@ -10,12 +10,24 @@ public struct UploadSource: Sendable, Hashable {
     public let name: String
     public let size: Int64
 
+    /// Rejects here what `POST /uploads` would reject on the wire, so a file that can never be
+    /// sent is refused where it is picked rather than becoming a dead queue row.
     public init(fileURL: URL, name: String? = nil) throws {
-        guard FileManager.default.isReadableFile(atPath: fileURL.path(percentEncoded: false)) else {
+        let path = fileURL.path(percentEncoded: false)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              FileManager.default.isReadableFile(atPath: path)
+        else {
             throw TableError.sourceNotReadable(fileURL)
+        }
+        guard !isDirectory.boolValue else {
+            throw TableError.invalidRequest("a folder, not a file")
+        }
+        size = fileSize(fileURL)
+        guard size > 0 else {
+            throw TableError.invalidRequest("empty; an upload needs at least one byte")
         }
         self.fileURL = fileURL
         self.name = name ?? fileURL.lastPathComponent
-        size = fileSize(fileURL)
     }
 }

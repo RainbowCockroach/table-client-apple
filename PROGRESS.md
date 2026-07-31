@@ -8,8 +8,8 @@ Prerequisite: a working `table-server` (local dev build is enough).
 
 | # | Checkpoint | Proves | Status |
 |---|---|---|---|
-| C1 | `TableCore` package: API client + hashing + queue, XCTest conformance-scenario tests against a local server (incl. fault-path tests via `X-Test-Drop-After`) | conformance + fault tests green | staged for review |
-| C2 | macOS destination: main window, settings, drag-and-drop, foreground transfers end-to-end | manual: drop → upload → download on another device | not started |
+| C1 | `TableCore` package: API client + hashing + queue, XCTest conformance-scenario tests against a local server (incl. fault-path tests via `X-Test-Drop-After`) | conformance + fault tests green | done |
+| C2 | macOS destination: main window, settings, drag-and-drop, foreground transfers end-to-end | manual: drop → upload → download on another device | staged for review |
 | C3 | iOS destination: same screens, background `URLSession` transfers, notifications | manual background-transfer pass (DESIGN.md §7) | not started |
 | C4 | Share extension + app group plumbing | manual: share from Photos/Files → queued → uploaded | not started |
 | C5 | Menu bar extra, Dock drop, iPad layout polish | manual release pass | not started |
@@ -62,3 +62,36 @@ Status values: `not started` → `in progress` → `staged for review` → `done
   - **iOS destination not compiled here.** Only the macOS platform is installed in this Xcode,
     so `swift test` covers macOS only. `TableCore` imports nothing but Foundation, CryptoKit
     and GRDB, but the iOS build is unverified until `xcodebuild -downloadPlatform iOS` has run.
+
+- **2026-07-31 — C2 macOS destination staged.** `TableCore` gained the `Settings/` module DESIGN §1
+  called for: `TableSettings` (host URL, key, insecure-http override, and the one place a client
+  is built from them), `SettingsStore` (URL in `UserDefaults`, key in the Keychain) and
+  `KeychainAPIKeyStore` (data-protection keychain, `AfterFirstUnlock` because C3 transfers run
+  locked, and an `accessGroup` for C4's extension). `UploadSource` now refuses folders and empty
+  files — `POST /uploads` rejects a non-positive size, so that belongs in tested code rather than
+  in UI glue. **52 XCTest tests green** (the 42 from C1 plus 6 settings and 4 upload-source),
+  run against a dev server with `TABLE_TTL=5s TABLE_TEST_FAULTS=1`.
+  The Xcode project picks `TableCore` up as a local package, and the Downloads-folder
+  entitlement arrives through `ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER[sdk=macosx*] = readwrite`.
+  The app target is now `App/` (entry point, `AppContainer` + `ClientProvider`, the observable
+  `AppModel`), `Screens/` (`MainView`: server list with expiry countdowns and live upload
+  progress, transfer queue with progress/retry/dismiss, "Take all"; `SettingsView` with
+  test-connection) and `Platform/` (`AppPaths`, `UploadIntake`, `SourceBookmarks`).
+  **Verified here:** both destinations build (`platform=macOS` and `generic/platform=iOS Simulator`
+  — which closes C1's open question about the iOS build), and the sandboxed app launches, wires
+  its container up and creates `queue.sqlite` in it. **Not verified here:** the drop → upload →
+  download pass itself. Driving the UI needs Accessibility permission for the terminal, which
+  this session does not have, so the checkpoint's manual proof is still yours to run.
+  **Reviewer, judgement calls:** (1) The queue lives in Application Support, not an app group:
+  the group entitlement needs provisioning and nothing shares the queue until C4. Every path is
+  in `AppPaths`, so that move is one edit. (2) macOS sandbox vs. rule 14: a dropped or picked
+  file is readable only while the app holds a claim on it, and the claim dies with the process —
+  so the intake bookmarks each source and `AppModel.start()` reopens the claims before
+  `resumeUnfinished()`. Claims are held for the whole launch rather than balanced, because a
+  queued upload may start reading at any point until it finishes. (3) Intake is macOS-only; the
+  iOS half is the document picker (C3) and the share extension (C4), so the iOS build compiles
+  and shows the list and queue with no add affordance. (4) The list polls only while
+  `scenePhase == .active`, matching the Android client — with another app focused the server
+  list goes stale, while transfer rows keep updating from the queue's own stream.
+  (5) No completion notifications yet (DESIGN §4); they are one piece of work with the iOS ones
+  in C3. (6) The C1 note about the server's live-relay/ack race is still open and untouched here.
