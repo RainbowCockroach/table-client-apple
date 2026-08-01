@@ -64,6 +64,7 @@
 		B764CB06301AE58C00E25674 /* Exceptions for "Table" folder in "Table" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"Info-macOS.plist",
 				Table.entitlements,
 			);
 			target = B764CA7A301AE58C00E25674 /* Table */;
@@ -392,6 +393,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=macosx*]" = "Table/Info-macOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Table;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -400,6 +402,7 @@
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace[sdk=macosx*]" = YES;
 				"INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIFileSharingEnabled[sdk=iphoneos*]" = YES;
@@ -454,6 +457,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=macosx*]" = "Table/Info-macOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Table;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -462,6 +466,7 @@
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace[sdk=macosx*]" = YES;
 				"INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIFileSharingEnabled[sdk=iphoneos*]" = YES;

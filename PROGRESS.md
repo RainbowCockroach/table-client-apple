@@ -10,9 +10,9 @@ Prerequisite: a working `table-server` (local dev build is enough).
 |---|---|---|---|
 | C1 | `TableCore` package: API client + hashing + queue, XCTest conformance-scenario tests against a local server (incl. fault-path tests via `X-Test-Drop-After`) | conformance + fault tests green | done |
 | C2 | macOS destination: main window, settings, drag-and-drop, foreground transfers end-to-end | manual: drop → upload → download on another device | done |
-| C3 | iOS destination: same screens, background `URLSession` transfers, notifications | manual background-transfer pass (DESIGN.md §7) | staged for review |
-| C4 | Share extension + app group plumbing | manual: share from Photos/Files → queued → uploaded | staged for review |
-| C5 | Menu bar extra, Dock drop, iPad layout polish | manual release pass | not started |
+| C3 | iOS destination: same screens, background `URLSession` transfers, notifications | manual background-transfer pass (DESIGN.md §7) | done |
+| C4 | Share extension + app group plumbing | manual: share from Photos/Files → queued → uploaded | done |
+| C5 | Menu bar extra, Dock drop, iPad layout polish | manual release pass | staged for review |
 
 Distribution is manual (Xcode / TestFlight) — no release CI planned for this repo.
 
@@ -204,3 +204,50 @@ Status values: `not started` → `in progress` → `staged for review` → `done
   dependency carry an `ios` platform filter, which is what keeps `-destination platform=macOS`
   from trying to build an iOS-only target. (7) The C1 note about the server's live-relay/ack race
   is still open and untouched here.
+
+- **2026-07-31 — C5 menu bar extra, Dock drop, iPad layout staged.** DESIGN §4 was reconciled
+  first, per the workflow: it now names what a Dock drop actually costs — the Dock delivers a
+  drop only for a type the app claims, so the macOS build declares `CFBundleDocumentTypes` for
+  `public.data` at `LSHandlerRank = None` plus `LSSupportsOpeningDocumentsInPlace` — and says
+  that a login-item launch may restore no window at all, so the queue resumes from the app
+  delegate rather than from a screen appearing.
+  No `TableCore` changes: this checkpoint is all app target. New `Screens/MenuBarView.swift`
+  (the `MenuBarExtra` window: drop zone, "Choose files…", the server list with one-click Take,
+  a one-line count of what is moving, and Open table / Settings / Quit), `Platform/MacAppDelegate.swift`
+  (`applicationDidFinishLaunching` → `start()`, `application(_:open:)` → the same intake the
+  window drop uses, bookmark and all), `Platform/LoginItem.swift` (`SMAppService.mainApp`) with
+  an "Open at login" toggle in Settings, and `Screens/Rows.swift`, which is `ServerFileRow`,
+  `TransferRow`, `Expiry`, `SectionHeader` and `Banner` lifted out of `MainView` so the window,
+  the split layout and the menu bar all draw the same rows. `MainView` splits into `filesSection`
+  and `transfersSection` and picks its container: a `NavigationSplitView` at regular width
+  (iPad, and iPad only — Slide Over is compact and stacks), the old single list everywhere else.
+  `AppModel.start()` is now synchronous, idempotent and owned by the model instead of a view,
+  and the list poll is one loop however many views are showing it.
+  **72 XCTest tests green** (unchanged from C4 — nothing in `TableCore` moved), three runs clean
+  against a dev server with `TABLE_TTL=5s TABLE_TEST_FAULTS=1`.
+  **Verified here:** both destinations build; the macOS Release build is installed in
+  `/Applications`; the menu bar extra is in the menu bar and its window renders the live list
+  with expiry countdowns; `lsregister` shows the app claiming `public.data` as a `None`-rank
+  viewer, which is the Dock's precondition; `open -a Table <file>` — the same LaunchServices
+  delivery a Dock drop makes — queued and uploaded a file, **including with every window
+  closed**, which is C5's "without the main window"; taking that file back from the menu bar ran
+  verify → ack → publish and it landed in `~/Downloads`; on the simulator the iPad shows the
+  table and the queue side by side while the iPhone still stacks them.
+  **Not verified here:** the literal drag gesture onto the Dock icon and onto the menu bar window
+  (the delivery underneath both is what was exercised), and the login item itself — registering
+  one would put a background item on your machine and prompt you for it, so that toggle is yours
+  to try. A build without a signing identity may well be refused; the toggle reports the refusal
+  inline and reflects the real registration state back, the same shape as C3's keychain fallback.
+  **Reviewer, judgement calls:** (1) `appModel` is a process-wide global, like the background
+  session already was. The app delegate has to reach the same model the scenes show, at a moment
+  when SwiftUI hands out nothing, and a second `AppModel` would be a second `TransferQueue` on
+  one database file. (2) `public.data`, not `public.item`: an upload source is a file, folders
+  are refused in `UploadSource`, and not claiming them keeps the Dock from highlighting for
+  something that would only fail. (3) `LSSupportsOpeningDocumentsInPlace` had to be turned on
+  for macOS — Xcode writes it as `NO` by default and then refuses to build a macOS app that
+  declares document types with it off. It is also true: macOS reads the original file where it
+  lies rather than copying it in, which is exactly the difference from the iOS intake. (4) The
+  menu bar shows the file list and a count, not the whole queue — "glanceable" per DESIGN §4,
+  with Open table one click away. (5) The macOS window keeps its single stacked list: §4 asks for
+  the side-by-side layout on iPad, and a 520-point window has no room for it. (6) The C1 note
+  about the server's live-relay/ack race is still open and untouched here.

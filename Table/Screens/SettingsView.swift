@@ -10,6 +10,27 @@ struct SettingsView: View {
     @State private var allowInsecureHTTP = false
     @State private var isKeyVisible = false
 
+    #if os(macOS)
+    private let loginItem = LoginItem()
+    @State private var isOpeningAtLogin = false
+    @State private var loginItemError: String?
+
+    /// The registration is the state, so a refused change is reflected back rather than kept.
+    private var opensAtLogin: Binding<Bool> {
+        Binding {
+            isOpeningAtLogin
+        } set: { wanted in
+            do {
+                try loginItem.setEnabled(wanted)
+                loginItemError = nil
+            } catch {
+                loginItemError = error.localizedDescription
+            }
+            isOpeningAtLogin = loginItem.isEnabled
+        }
+    }
+    #endif
+
     private var edited: TableSettings {
         TableSettings(hostURL: hostURL, apiKey: apiKey, allowInsecureHTTP: allowInsecureHTTP)
     }
@@ -32,6 +53,17 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            #if os(macOS)
+            Section {
+                Toggle("Open at login", isOn: opensAtLogin)
+                Text("Keeps the menu bar extra there without opening the app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let loginItemError {
+                    Text(loginItemError).foregroundStyle(.red)
+                }
+            }
+            #endif
             Section {
                 HStack {
                     Button("Save") { model.save(edited) }
@@ -54,6 +86,9 @@ struct SettingsView: View {
             hostURL = model.settings.hostURL
             apiKey = model.settings.apiKey
             allowInsecureHTTP = model.settings.allowInsecureHTTP
+            #if os(macOS)
+            isOpeningAtLogin = loginItem.isEnabled
+            #endif
         }
     }
 

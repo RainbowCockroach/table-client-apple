@@ -55,10 +55,10 @@ The `Authorization` header is attached by the `TableClient` layer, never scatter
 - iPad is the same app with a wider layout (`NavigationSplitView`: file list + queue side by side).
 
 **macOS**
-- Drag-and-drop onto the main window and onto the Dock icon.
+- Drag-and-drop onto the main window and onto the Dock icon. The Dock only delivers a drop for a type the app claims it opens, so the macOS build declares `CFBundleDocumentTypes` for `public.data` at `LSHandlerRank = None` — a drop target, never the default handler for anything — and `LSSupportsOpeningDocumentsInPlace`, which is what it does: the original file is bookmarked and read where it lies, never copied in.
 - **Menu bar extra**: a drop target that enqueues uploads without the main window, plus a glanceable list of server files with one-click download.
 - Standard user notifications on completion.
-- Login item optional (settings toggle) so the menu bar extra is always available.
+- Login item optional (settings toggle) so the menu bar extra is always available. A launch with no window restored is the case the app has to survive: the queue resumes from the app delegate, not from a screen appearing.
 
 ## 5. Screens
 

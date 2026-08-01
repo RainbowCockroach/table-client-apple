@@ -24,9 +24,11 @@ TableCore/                       local Swift package — all logic, no UI
 Table/                           app target (iOS + iPadOS + macOS destinations)
   App/        entry point, the container that wires TableCore up, and the observable
               model both screens read
-  Screens/    MainView (server list + transfer queue), SettingsView
+  Screens/    MainView (server list + transfer queue, side by side on a wide iPad),
+              SettingsView, and the macOS menu bar extra
   Platform/   per-platform glue: where files land, the intake (macOS drop and bookmarks,
-              iOS picker and container copies), and the completion notifications
+              iOS picker and container copies), the completion notifications, and the
+              macOS app delegate (launch, Dock drop) and login item
 ShareExtension/                  iOS share-sheet target: copies the shared items into the
                                  app group container and queues them, nothing else
 ```
@@ -85,3 +87,8 @@ which the Files app shows.
 Sharing to the app from another app queues the files but sends nothing: the upload needs the
 whole file hashed first (conformance rule 1), which an extension has no time for. Open Table
 and the queue picks up.
+
+On macOS the app is also a menu bar extra: drop files on it or take files off it with the
+window closed, which is what **Open at login** in Settings is for. Files dropped on the Dock
+icon are queued the same way — `open -a Table <file>` delivers exactly what the drop does, so
+that path is testable from a terminal.

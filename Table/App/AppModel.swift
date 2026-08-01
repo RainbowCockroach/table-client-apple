@@ -11,6 +11,10 @@ enum ConnectionTest {
     case unreachable(String)
 }
 
+/// One model per process: it owns the queue, and the macOS app delegate has to reach the same
+/// one the scenes show (DESIGN §4) at a point where SwiftUI hands out nothing.
+let appModel = AppModel()
+
 /// The state both screens read, and the only place they reach the queue through.
 @Observable
 final class AppModel {
@@ -29,6 +33,9 @@ final class AppModel {
     private let container: AppContainer?
     private let notifications = TransferNotifications()
     private var settled = SettledTransfers()
+    private var lifecycle: Task<Void, Never>?
+    private var listViewers = 0
+    private var poller: Task<Void, Never>?
 
     init() {
         do {
@@ -41,10 +48,17 @@ final class AppModel {
         reloadSettings()
     }
 
-    /// Resumes what the last launch left behind, then follows the queue for as long as the
-    /// view lives (conformance rule 14).
-    func start() async {
-        guard let container else { return }
+    /// Resumes what the last launch left behind, then follows the queue for the rest of the
+    /// launch (conformance rule 14).
+    ///
+    /// Owned by the model rather than by a view: on macOS the window may be closed and the menu
+    /// bar extra still running, or a login-item launch may put no window on screen at all.
+    func start() {
+        guard lifecycle == nil, let container else { return }
+        lifecycle = Task { await follow(container) }
+    }
+
+    private func follow(_ container: AppContainer) async {
         await notifications.requestAuthorization()
         settled.takeStock(of: await snapshot(container))
         await resumeUnfinished(container)
@@ -76,7 +90,27 @@ final class AppModel {
         await container.queue.pickUpQueuedWork()
     }
 
-    func pollWhileActive() async {
+    /// Polls the list for as long as the caller's task lives. On macOS the window and the menu
+    /// bar extra can both be showing the list, and they share the one loop.
+    func pollWhileVisible() async {
+        listViewers += 1
+        if poller == nil {
+            poller = Task { await pollList() }
+        }
+        defer {
+            listViewers -= 1
+            if listViewers == 0 {
+                poller?.cancel()
+                poller = nil
+            }
+        }
+        // The requests are the loop above; this waits out the view that asked for them.
+        while !Task.isCancelled {
+            try? await Task.sleep(for: listPollInterval)
+        }
+    }
+
+    private func pollList() async {
         while !Task.isCancelled {
             await refresh()
             try? await Task.sleep(for: listPollInterval)
