@@ -1,6 +1,6 @@
 import Foundation
 
-/// The API key's only storage. Conformance rule 12 keeps it out of `UserDefaults`, logs and backups.
+/// The API key's only storage, which DESIGN §5 keeps out of `UserDefaults`, logs and backups.
 public protocol APIKeyStore: Sendable {
     /// The stored key, or "" when none was ever written.
     func read() throws -> String
@@ -9,7 +9,8 @@ public protocol APIKeyStore: Sendable {
     func write(_ apiKey: String) throws
 }
 
-/// DESIGN §5: host URL in `UserDefaults`, API key in the Keychain, one type over both.
+/// DESIGN §5: host URL in `UserDefaults`, API key in whatever `APIKeyStore` the platform got,
+/// one type over both.
 ///
 /// `@unchecked` only because `UserDefaults` is thread-safe but predates `Sendable`.
 public struct SettingsStore: @unchecked Sendable {

@@ -71,6 +71,11 @@ public struct ContainerPaths: Sendable {
         root.appending(path: "sources.json")
     }
 
+    /// macOS: the API key, which does not live in a keychain there (DESIGN §5).
+    public var apiKeyFile: URL {
+        root.appending(path: "api-key")
+    }
+
     /// Creates the container. Both processes call this; whoever gets there first wins.
     public func create() throws {
         var attributes: [FileAttributeKey: Any] = [:]

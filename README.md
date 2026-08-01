@@ -59,6 +59,16 @@ tests still run. `TABLE_TTL_SECONDS` gates the expiry test alone, and `TABLE_TES
 
 ## Running the app
 
+`./install.sh` builds and installs it:
+
+```sh
+./install.sh                          # macOS Release -> /Applications/Table.app
+./install.sh ios                      # iOS Debug -> booted simulator, launched
+./install.sh ios 'iPad Pro 13-inch (M4)'
+```
+
+which is these, if you'd rather run them by hand:
+
 ```sh
 # macOS, installed where you can launch it like any other app
 xcodebuild -project Table.xcodeproj -scheme Table -destination 'platform=macOS' \

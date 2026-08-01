@@ -30,5 +30,5 @@ The spec wins over improvisation. If code and spec disagree, stop and reconcile 
 - Resume, never restart: `HEAD` for the upload offset, `Range` from the partial file size. Background upload resume materializes a temp slice (see DESIGN.md §2).
 - Download order: temp file → verify → fsync → **ack** → publish (Files app / `~/Downloads`).
 - `404`/`410` on ack = success; `409` on ack = discard local copy and re-download.
-- API key lives in the Keychain; attached to requests in exactly one place (`TableClient`).
+- API key lives in the Keychain on iOS and in a `0600` container file on macOS (DESIGN §5); attached to requests in exactly one place (`TableClient`).
 - All logic lives in the `TableCore` package (no UI imports) so it runs under unit tests against a local `table-server`; the share extension never hashes or uploads.

@@ -65,7 +65,9 @@ The `Authorization` header is attached by the `TableClient` layer, never scatter
 Same two-screen shape as the Android client:
 
 1. **Main** — server file list (poll ~5 s while foregrounded; entries show name, size, expiry countdown, and upload progress for `uploading` files, which are downloadable immediately per the live-relay design) + local transfer queue with per-item progress. "Download all" action.
-2. **Settings** — host URL, API key, "test connection". API key in the **Keychain**, URL in `UserDefaults` — on iOS/iPadOS the app group's suite, which is how the share extension can tell the user the app has no server yet before it queues anything. The key is not shared: the extension never talks to the server, so it has no use for one.
+2. **Settings** — host URL, API key, "test connection". URL in `UserDefaults` — on iOS/iPadOS the app group's suite, which is how the share extension can tell the user the app has no server yet before it queues anything. The key is not shared: the extension never talks to the server, so it has no use for one.
+
+   The API key goes in the **Keychain on iOS/iPadOS** and in a `0600` file in the container **on macOS**. macOS pins a file-keychain item's ACL to the app's designated requirement, which for a locally signed build is its `cdhash`, so every rebuild reads as a new app and the system demands the login password again; the data-protection keychain would not ask but needs an `application-identifier` entitlement no ad-hoc signature can carry. A local build that prompts on every launch is worse than a key at rest in a container the sandbox already guards, and the files this app moves are ephemeral. Revisit if macOS builds are ever signed with a team.
 
 ## 6. Apple-specific edge cases
 

@@ -14,7 +14,7 @@ final class AppContainer {
 
     init() throws {
         let paths = try AppPaths()
-        settings = makeSettingsStore()
+        settings = makeSettingsStore(paths)
         let clients = ClientProvider(settings: settings)
         self.clients = clients
         let store = try SQLiteTransferStore(fileURL: paths.container.queueDatabase)
@@ -72,14 +72,15 @@ private func transferTasks(_ paths: AppPaths) -> TransferTasks {
 }
 
 /// DESIGN §5: on iOS the host URL lives in the app group's suite, which is the only way the
-/// share extension can tell whether there is a server to queue for.
-private func makeSettingsStore() -> SettingsStore {
-    let apiKeys = KeychainAPIKeyStore()
+/// share extension can tell whether there is a server to queue for. macOS keeps the API key in
+/// the container instead of a keychain — see `FileAPIKeyStore` for why.
+private func makeSettingsStore(_ paths: AppPaths) -> SettingsStore {
     #if os(iOS)
+    let apiKeys = KeychainAPIKeyStore()
     guard let shared = AppGroup.defaults() else { return SettingsStore(apiKeys: apiKeys) }
     return SettingsStore(defaults: shared, inheritingFrom: .standard, apiKeys: apiKeys)
     #else
-    return SettingsStore(apiKeys: apiKeys)
+    return SettingsStore(apiKeys: FileAPIKeyStore(fileURL: paths.container.apiKeyFile))
     #endif
 }
 

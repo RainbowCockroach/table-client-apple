@@ -17,9 +17,13 @@ final class SourceBookmarks {
             .flatMap { try? JSONDecoder().decode([String: Data].self, from: $0) } ?? [:]
     }
 
+    /// The app holds only `files.user-selected.read-only`, so a read-write scope cannot open()
+    /// the item: without `securityScopeAllowOnlyReadAccess` every source fails with Cocoa 256.
     func remember(_ url: URL) throws {
         _ = url.startAccessingSecurityScopedResource()
-        bookmarks[url.path(percentEncoded: false)] = try url.bookmarkData(options: .withSecurityScope)
+        bookmarks[url.path(percentEncoded: false)] = try url.bookmarkData(
+            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+        )
         try save()
     }
 
