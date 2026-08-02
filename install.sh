@@ -24,6 +24,12 @@ macos)
 	pkill -x Table || true
 	rm -rf /Applications/Table.app
 	cp -R build/Build/Products/Release/Table.app /Applications/
+
+	# The Services registry answers Finder from a cache that survives replacing the bundle, so
+	# without this the right-click entry stays whatever the last install said. Setting
+	# `servicesProvider` at launch does not refresh it; only this does.
+	/System/Library/CoreServices/pbs -flush
+
 	echo "installed /Applications/Table.app — open -a Table"
 	;;
 

@@ -12,7 +12,8 @@ Prerequisite: a working `table-server` (local dev build is enough).
 | C2 | macOS destination: main window, settings, drag-and-drop, foreground transfers end-to-end | manual: drop → upload → download on another device | done |
 | C3 | iOS destination: same screens, background `URLSession` transfers, notifications | manual background-transfer pass (DESIGN.md §7) | done |
 | C4 | Share extension + app group plumbing | manual: share from Photos/Files → queued → uploaded | done |
-| C5 | Menu bar extra, Dock drop, iPad layout polish | manual release pass | staged for review |
+| C5 | Menu bar extra, Dock drop, iPad layout polish | manual release pass | done |
+| C6 | macOS Finder Services entry ("Put on the table") | manual: right-click a file in Finder → Services → uploaded | staged for review |
 
 Distribution is manual (Xcode / TestFlight) — no release CI planned for this repo.
 
@@ -251,3 +252,35 @@ Status values: `not started` → `in progress` → `staged for review` → `done
   with Open table one click away. (5) The macOS window keeps its single stacked list: §4 asks for
   the side-by-side layout on iPad, and a 520-point window has no room for it. (6) The C1 note
   about the server's live-relay/ack race is still open and untouched here.
+
+- **2026-08-02 — C6 Finder Services entry staged.** No `TableCore` changes; macOS app target only.
+  New `Platform/ServicesProvider.swift` (one `@objc putOnTheTable:userData:error:` that reads file
+  URLs off the service pasteboard and hands them to `AppModel.add`, the same intake a drop and a
+  Dock delivery use), an `NSServices` declaration in `Info-macOS.plist`, and one line in
+  `MacAppDelegate` setting `NSApp.servicesProvider`. `install.sh` now runs `pbs -flush` after
+  copying the bundle. DESIGN §4 gained the "Finder context menu" bullet before any code was
+  written.
+  **72 XCTest tests green** (unchanged — nothing in `TableCore` moved).
+  **Verified here:** the service is in the system registry (`pbs -dump_pboard`) alongside
+  TeamViewer's and Send Anywhere's, same shape; invoking it via `NSPerformService` — the delivery
+  underneath Finder's menu item — queued, hashed, uploaded and settled `done` with a `remoteID`,
+  both with the app **already running** and with it **not running at all** (the service launches
+  it), repeatedly and against the final installed build.
+  The menu gesture itself was the one thing this session could not drive; **user confirmed the
+  entry appears under Services on a Finder right-click**, which completes C6's manual proof.
+  **Reviewer, judgement calls:** (1) `NSServices`, not a share extension: Share would put the app
+  behind Finder's Share submenu, and an extension cannot hash or upload anyway (DESIGN §4, iOS
+  bullet) — a service is delivered to the app process, which is the only one allowed to. (2)
+  `NSSendFileTypes = public.data`, matching C5's document-type call for the same reason: folders
+  are not upload sources, so the entry stays out of a folder's menu instead of appearing and
+  failing. (3) `NSRequiredContext` is present but empty — Apple's docs say a service without the
+  key at all is not offered automatically; TeamViewer's working entry has the same empty dict. (4)
+  No window is brought forward on invocation, matching the Dock drop: the completion notification
+  is the feedback, and a launch that shows nothing but the menu bar extra is a case §4 already
+  requires the app to survive. (5) `pbs -flush` lives in `install.sh`, not in the app: the Services
+  registry keeps the previous bundle's definitions across a reinstall, and this was **measured** —
+  after replacing the bundle and relaunching, the registry still served the old menu title until
+  flushed. `NSUpdateDynamicServices()` was tried in the app for this and does **not** refresh it,
+  so it is not in the code. (6) `NSApp.servicesProvider`, not `NSRegisterServicesProvider`: both
+  work, but the latter trips an AppKit assertion (`-[NSServiceMaster registerObject:withServicePath:]`)
+  if it ever runs twice, and the former is the documented path for an app-hosted provider.
